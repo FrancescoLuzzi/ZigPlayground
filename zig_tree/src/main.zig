@@ -32,16 +32,56 @@ const Node = struct {
             }
         }
         setNodeHeight(self);
+        return self.rebalance() catch self;
+    }
+
+    fn popMinNode(self: *Node) *Node {
+        if (self.left) |l| {
+            if (l.left == null) {
+                self.left = l.right;
+                l.right = null;
+                setNodeHeight(self);
+                return l;
+            } else {
+                const out = popMinNode(l.left.?);
+                setNodeHeight(self);
+                return out;
+            }
+        }
+        return self;
+    }
+    fn popMaxNode(self: *Node) *Node {
+        if (self.right) |r| {
+            if (r.right == null) {
+                self.right = r.left;
+                r.left = null;
+                setNodeHeight(self);
+                return r;
+            } else {
+                const out = popMaxNode(r.right.?);
+                setNodeHeight(self);
+                return out;
+            }
+            self.right = r.left;
+            return r;
+        }
         return self;
     }
 
     fn delete(self: *Node, allocator: *std.mem.Allocator, value: i32) ?*Node {
         if (self.data == value) {
-            var new_root = self.left;
-            if (new_root) |l| {
-                l.right = self.right;
-            } else {
+            var new_root: ?*Node = null;
+            if (self.left == null) {
                 new_root = self.right;
+                setNodeHeight(new_root.?);
+            } else if (self.right == null) {
+                new_root = self.left;
+                setNodeHeight(new_root.?);
+            } else {
+                new_root = popMinNode(self.right.?);
+                new_root.?.left = self.left;
+                setNodeHeight(new_root.?);
+                new_root = new_root.?.rebalance() catch new_root;
             }
             allocator.destroy(self);
             return new_root;
@@ -56,7 +96,8 @@ const Node = struct {
                 self.left = l.delete(allocator, value);
             }
         }
-        return self;
+        setNodeHeight(self);
+        return self.rebalance() catch self;
     }
 
     fn balance(self: *Node) i32 {
@@ -74,7 +115,7 @@ const Node = struct {
     fn rotateRight(self: *Node) anyerror!*Node {
         var new_root = self.left.?;
         self.left = new_root.right;
-        new_root.left = self;
+        new_root.right = self;
         setNodeHeight(self);
         setNodeHeight(new_root);
         return new_root;
@@ -140,12 +181,10 @@ const Tree = struct {
             return;
         }
         self.root = self.root.?.insert(new_node);
-        try self.rebalance();
     }
     pub fn delete(self: *Tree, value: i32) anyerror!void {
         var alloc = self.allocator.allocator();
         self.root = self.root.?.delete(&alloc, value);
-        try self.rebalance();
     }
 
     pub fn rebalance(self: *Tree) anyerror!void {
@@ -159,7 +198,7 @@ const Tree = struct {
         try nodes.writeItem(self.root.?);
         while (nodes.count > 0) {
             const curr_node = nodes.readItem().?;
-            try writer.print("[{}], ", .{curr_node.data});
+            try writer.print("[{},{}], ", .{ curr_node.data, curr_node.height });
             if (curr_node.left) |l| {
                 try nodes.writeItem(l);
             }
@@ -185,17 +224,25 @@ pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
     try tree.insert(10);
+    try tree.print(stdout);
     try tree.insert(11);
+    try tree.print(stdout);
     try tree.insert(7);
+    try tree.print(stdout);
     try tree.insert(12);
+    try tree.print(stdout);
     try tree.insert(9);
+    try tree.print(stdout);
     try tree.insert(15);
+    try tree.print(stdout);
     try tree.insert(8);
     try tree.print(stdout);
     try tree.insert(16);
+    try tree.print(stdout);
     try tree.insert(17);
     try tree.print(stdout);
-    try tree.delete(11);
+    try tree.delete(8);
+    try tree.delete(7);
     try tree.print(stdout);
 }
 
