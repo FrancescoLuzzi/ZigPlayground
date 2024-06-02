@@ -71,17 +71,19 @@ const Node = struct {
     fn delete(self: *Node, allocator: *std.mem.Allocator, value: i32) ?*Node {
         if (self.data == value) {
             var new_root: ?*Node = null;
-            if (self.left == null) {
-                new_root = self.right;
-                setNodeHeight(new_root.?);
-            } else if (self.right == null) {
-                new_root = self.left;
-                setNodeHeight(new_root.?);
-            } else {
-                new_root = popMinNode(self.right.?);
-                new_root.?.left = self.left;
-                setNodeHeight(new_root.?);
-                new_root = new_root.?.rebalance() catch new_root;
+            if (self.left != null or self.right != null) {
+                if (self.left == null) {
+                    new_root = self.right;
+                    setNodeHeight(new_root.?);
+                } else if (self.right == null) {
+                    new_root = self.left;
+                    setNodeHeight(new_root.?);
+                } else {
+                    new_root = popMinNode(self.right.?);
+                    new_root.?.left = self.left;
+                    setNodeHeight(new_root.?);
+                    new_root = new_root.?.rebalance() catch unreachable;
+                }
             }
             allocator.destroy(self);
             return new_root;
@@ -97,7 +99,7 @@ const Node = struct {
             }
         }
         setNodeHeight(self);
-        return self.rebalance() catch self;
+        return self.rebalance() catch unreachable;
     }
 
     fn balance(self: *Node) i32 {
@@ -147,11 +149,6 @@ const Node = struct {
         return self;
     }
 };
-
-const leftArrow = "/";
-const rightArrow = "\\";
-const spaceOrizzontal = " ";
-const spaceVertical = "\n";
 
 const Tree = struct {
     root: ?*Node,
@@ -213,42 +210,76 @@ const Tree = struct {
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const testTimes: i64 = 1_000_000;
+    // const testTimes: i64 = 1_000;
+    const testTimesFloat: f64 = @floatFromInt(testTimes);
+    var meanTime: f64 = 0;
+    var standardDeviation: f64 = 0;
 
+    const stdout = std.io.getStdOut().writer();
+
+    try stdout.print("Test with {} insertion and deletions\n", .{testTimes});
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     var tree = Tree.init(&arena);
     defer tree.deinit();
 
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout = std.io.getStdOut().writer();
+    // init timestamps array and index
+    var timings = [_]f64{0} ** testTimes;
+    var i: usize = 0;
 
-    try tree.insert(10);
-    try tree.print(stdout);
-    try tree.insert(11);
-    try tree.print(stdout);
-    try tree.insert(7);
-    try tree.print(stdout);
-    try tree.insert(12);
-    try tree.print(stdout);
-    try tree.insert(9);
-    try tree.print(stdout);
-    try tree.insert(15);
-    try tree.print(stdout);
-    try tree.insert(8);
-    try tree.print(stdout);
-    try tree.insert(16);
-    try tree.print(stdout);
-    try tree.insert(17);
-    try tree.print(stdout);
-    try tree.delete(8);
-    try tree.delete(7);
-    try tree.print(stdout);
+    // inserting test
+    while (i < testTimes) {
+        const start = try std.time.Instant.now();
+        try tree.insert(@intCast(i));
+        const end = try std.time.Instant.now();
+        timings[i] = @floatFromInt(end.since(start));
+        meanTime += (timings[i] / testTimes);
+        i += 1;
+    }
+    i = 0;
+    while (i < testTimes) {
+        standardDeviation += std.math.pow(f64, (meanTime - timings[i]), 2);
+        i += 1;
+    }
+    standardDeviation = std.math.sqrt(standardDeviation / (testTimes - 1));
+    try stdout.print("Insertion\nmean={d:.4}ns, deviation={d:.4}ns\n", .{ meanTime, standardDeviation });
+    try stdout.print("first elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[0], timings[1] });
+    try stdout.print("median elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[@floor(testTimesFloat / 2)], timings[@floor(testTimesFloat / 2) + 1] });
+    try stdout.print("last elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[testTimes - 2], timings[testTimes - 1] });
+
+    // init timestamps array and index
+    timings = [_]f64{0} ** testTimes;
+    standardDeviation = 0;
+    meanTime = 0;
+    i = 0;
+
+    // deletion
+    while (i < testTimes) {
+        const start = try std.time.Instant.now();
+        try tree.delete(@intCast(i));
+        const end = try std.time.Instant.now();
+        timings[i] = @floatFromInt(end.since(start));
+        meanTime += timings[i];
+        i += 1;
+    }
+    meanTime /= testTimes;
+    i = 0;
+    while (i < testTimes) {
+        standardDeviation += std.math.pow(f64, (meanTime - timings[i]), 2);
+        i += 1;
+    }
+    standardDeviation = std.math.sqrt(standardDeviation / (testTimes - 1));
+
+    try stdout.print("Deletion\nmean={d:.4}ns, deviation={d:.4}ns\n", .{ meanTime, standardDeviation });
+    try stdout.print("first elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[0], timings[1] });
+    try stdout.print("median elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[@floor(testTimesFloat / 2)], timings[@floor(testTimesFloat / 2) + 1] });
+    try stdout.print("last elements: [{d:.4}ns, {d:.4}ns]\n", .{ timings[testTimes - 2], timings[testTimes - 1] });
 }
 
-test "simple test" {
-    const arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var tree = Tree.init(arena);
+test "simple insert rebalance" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var tree = Tree.init(&arena);
     defer tree.deinit();
     try tree.insert(2);
     try tree.insert(1);
@@ -256,11 +287,39 @@ test "simple test" {
     try tree.insert(4);
     try tree.insert(5);
     var node = tree.root;
-    try std.testing.expectEqual(@as(i32, 3), node.?.data);
-    node = tree.root.?.left;
     try std.testing.expectEqual(@as(i32, 2), node.?.data);
+    node = tree.root.?.left;
+    try std.testing.expectEqual(@as(i32, 1), node.?.data);
     node = node.?.right;
     try std.testing.expectEqual(null, node);
-    node = tree.root.?.left;
+    const node_r = tree.root.?.right;
+    try std.testing.expectEqual(@as(i32, 4), node_r.?.data);
+    node = node_r.?.left;
+    try std.testing.expectEqual(@as(i32, 3), node.?.data);
+    node = node_r.?.right;
+    try std.testing.expectEqual(@as(i32, 5), node.?.data);
+}
+
+test "simple delete rebalance" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    var tree = Tree.init(&arena);
+    defer tree.deinit();
+    try tree.insert(2);
+    try tree.insert(1);
+    try tree.insert(3);
+    try tree.insert(4);
+    try tree.insert(5);
+    try tree.delete(4);
+    var node = tree.root;
     try std.testing.expectEqual(@as(i32, 2), node.?.data);
+    node = tree.root.?.left;
+    try std.testing.expectEqual(@as(i32, 1), node.?.data);
+    node = node.?.right;
+    try std.testing.expectEqual(null, node);
+    const node_r = tree.root.?.right;
+    try std.testing.expectEqual(@as(i32, 5), node_r.?.data);
+    node = node_r.?.left;
+    try std.testing.expectEqual(@as(i32, 3), node.?.data);
+    node = node_r.?.right;
+    try std.testing.expectEqual(null, node);
 }
