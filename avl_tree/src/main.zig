@@ -3,210 +3,230 @@ const std = @import("std");
 const max_i32 = std.math.maxInt(i32);
 const min_i32 = std.math.minInt(i32);
 
-fn getNodeHeight(node: ?*Node) i32 {
-    return if (node) |n| n.height else 0;
+fn Comparer(t: type) type {
+    return fn (a: t, b: t) std.math.Order;
 }
 
-fn setNodeHeight(node: *Node) void {
-    node.height = @max(getNodeHeight(node.right), getNodeHeight(node.left)) + 1;
-}
+fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
+    return struct {
+        const Self = @This();
+        const comparer = Cmp;
 
-const Node = struct {
-    data: i32,
-    height: i32,
-    left: ?*Node,
-    right: ?*Node,
-
-    fn insert(self: *Node, new_node: *Node) *Node {
-        if (new_node.data > self.data) {
-            if (self.right) |right| {
-                self.right = right.insert(new_node);
-            } else {
-                self.right = new_node;
-            }
-        } else {
-            if (self.left) |left| {
-                self.left = left.insert(new_node);
-            } else {
-                self.left = new_node;
-            }
+        fn getNodeHeight(node: ?*Self) i32 {
+            return if (node) |n| n.height else 0;
         }
-        setNodeHeight(self);
-        return self.rebalance() catch self;
-    }
 
-    fn popMinNode(self: *Node) *Node {
-        if (self.left) |l| {
-            if (l.left == null) {
-                self.left = l.right;
-                l.right = null;
-                setNodeHeight(self);
-                return l;
-            } else {
-                const out = popMinNode(l.left.?);
-                setNodeHeight(self);
-                return out;
-            }
+        fn setNodeHeight(node: *Self) void {
+            node.height = @max(getNodeHeight(node.right), getNodeHeight(node.left)) + 1;
         }
-        return self;
-    }
-    fn popMaxNode(self: *Node) *Node {
-        if (self.right) |r| {
-            if (r.right == null) {
-                self.right = r.left;
-                r.left = null;
-                setNodeHeight(self);
-                return r;
-            } else {
-                const out = popMaxNode(r.right.?);
-                setNodeHeight(self);
-                return out;
-            }
-            self.right = r.left;
-            return r;
-        }
-        return self;
-    }
 
-    fn delete(self: *Node, allocator: *std.mem.Allocator, value: i32) ?*Node {
-        if (self.data == value) {
-            var new_root: ?*Node = null;
-            if (self.left != null or self.right != null) {
-                if (self.left == null) {
-                    new_root = self.right;
-                    setNodeHeight(new_root.?);
-                } else if (self.right == null) {
-                    new_root = self.left;
-                    setNodeHeight(new_root.?);
+        data: DataType,
+        height: i32,
+        left: ?*Self,
+        right: ?*Self,
+
+        fn insert(self: *Self, new_node: *Self) *Self {
+            const cmp = comparer(new_node.data, self.data);
+            if (cmp.compare(.gt)) {
+                if (self.right) |right| {
+                    self.right = right.insert(new_node);
                 } else {
-                    new_root = popMinNode(self.right.?);
-                    new_root.?.left = self.left;
-                    setNodeHeight(new_root.?);
-                    new_root = new_root.?.rebalance() catch unreachable;
+                    self.right = new_node;
+                }
+            } else {
+                if (self.left) |left| {
+                    self.left = left.insert(new_node);
+                } else {
+                    self.left = new_node;
                 }
             }
-            allocator.destroy(self);
-            return new_root;
+            setNodeHeight(self);
+            return self.rebalance() catch self;
         }
 
-        if (value > self.data) {
-            if (self.right) |r| {
-                self.right = r.delete(allocator, value);
-            }
-        } else {
+        fn popMinNode(self: *Self) *Self {
             if (self.left) |l| {
-                self.left = l.delete(allocator, value);
+                if (l.left == null) {
+                    self.left = l.right;
+                    l.right = null;
+                    setNodeHeight(self);
+                    return l;
+                } else {
+                    const out = l.left.?.popMinNode();
+                    setNodeHeight(self);
+                    return out;
+                }
             }
-        }
-        setNodeHeight(self);
-        return self.rebalance() catch unreachable;
-    }
-
-    fn balance(self: *Node) i32 {
-        return getNodeHeight(self.right) - getNodeHeight(self.left);
-    }
-
-    fn rotateLeft(self: *Node) anyerror!*Node {
-        var new_root = self.right.?;
-        self.right = new_root.left;
-        new_root.left = self;
-        setNodeHeight(self);
-        setNodeHeight(new_root);
-        return new_root;
-    }
-    fn rotateRight(self: *Node) anyerror!*Node {
-        var new_root = self.left.?;
-        self.left = new_root.right;
-        new_root.right = self;
-        setNodeHeight(self);
-        setNodeHeight(new_root);
-        return new_root;
-    }
-    fn rotateLeftRight(self: *Node) anyerror!*Node {
-        self.left = try self.left.?.rotateLeft();
-        return try self.rotateRight();
-    }
-    fn rotateRightLeft(self: *Node) anyerror!*Node {
-        self.right = try self.right.?.rotateRight();
-        return try self.rotateLeft();
-    }
-    fn rebalance(self: *Node) anyerror!*Node {
-        const bal = self.balance();
-        if (bal >= -1 and bal <= 1) {
             return self;
         }
-        const lBal = if (self.left) |l| l.balance() else 0;
-        const rBal = if (self.right) |r| r.balance() else 0;
-        if (bal < -1 and lBal <= -1) {
+        fn popMaxNode(self: *Self) *Self {
+            if (self.right) |r| {
+                if (r.right == null) {
+                    self.right = r.left;
+                    r.left = null;
+                    setNodeHeight(self);
+                    return r;
+                } else {
+                    const out = popMaxNode(r.right.?);
+                    setNodeHeight(self);
+                    return out;
+                }
+                self.right = r.left;
+                return r;
+            }
+            return self;
+        }
+
+        fn delete(self: *Self, allocator: *std.mem.Allocator, value: i32) ?*Self {
+            const cmp = comparer(value, self.data);
+            if (cmp.compare(.eq)) {
+                var new_root: ?*Self = null;
+                if (self.left != null or self.right != null) {
+                    if (self.left == null) {
+                        new_root = self.right;
+                        setNodeHeight(new_root.?);
+                    } else if (self.right == null) {
+                        new_root = self.left;
+                        setNodeHeight(new_root.?);
+                    } else {
+                        new_root = self.right.?.popMinNode();
+                        new_root.?.left = self.left;
+                        setNodeHeight(new_root.?);
+                        new_root = new_root.?.rebalance() catch unreachable;
+                    }
+                }
+                allocator.destroy(self);
+                return new_root;
+            }
+
+            if (cmp.compare(.gt)) {
+                if (self.right) |r| {
+                    self.right = r.delete(allocator, value);
+                }
+            } else {
+                if (self.left) |l| {
+                    self.left = l.delete(allocator, value);
+                }
+            }
+            setNodeHeight(self);
+            return self.rebalance() catch unreachable;
+        }
+
+        fn balance(self: *Self) i32 {
+            return getNodeHeight(self.right) - getNodeHeight(self.left);
+        }
+
+        fn rotateLeft(self: *Self) anyerror!*Self {
+            var new_root = self.right.?;
+            self.right = new_root.left;
+            new_root.left = self;
+            setNodeHeight(self);
+            setNodeHeight(new_root);
+            return new_root;
+        }
+        fn rotateRight(self: *Self) anyerror!*Self {
+            var new_root = self.left.?;
+            self.left = new_root.right;
+            new_root.right = self;
+            setNodeHeight(self);
+            setNodeHeight(new_root);
+            return new_root;
+        }
+        fn rotateLeftRight(self: *Self) anyerror!*Self {
+            self.left = try self.left.?.rotateLeft();
             return try self.rotateRight();
-        } else if (bal < -1 and lBal >= 1) {
-            return try self.rotateLeftRight();
-        } else if (bal > 1 and rBal <= -1) {
-            return try self.rotateRightLeft();
-        } else if (bal > 1 and rBal >= 1) {
+        }
+        fn rotateRightLeft(self: *Self) anyerror!*Self {
+            self.right = try self.right.?.rotateRight();
             return try self.rotateLeft();
         }
-        return self;
-    }
-};
-
-const Tree = struct {
-    root: ?*Node,
-    allocator: *std.heap.ArenaAllocator,
-
-    fn init(allocator: *std.heap.ArenaAllocator) Tree {
-        return Tree{
-            .root = null,
-            .allocator = allocator,
-        };
-    }
-
-    fn deinit(self: Tree) void {
-        self.allocator.deinit();
-    }
-
-    pub fn insert(self: *Tree, value: i32) anyerror!void {
-        const new_node = try self.allocator.allocator().create(Node);
-        new_node.* = .{
-            .data = value,
-            .height = 1,
-            .left = null,
-            .right = null,
-        };
-        if (self.root == null) {
-            self.root = new_node;
-            return;
+        fn rebalance(self: *Self) anyerror!*Self {
+            const bal = self.balance();
+            if (bal >= -1 and bal <= 1) {
+                return self;
+            }
+            const lBal = if (self.left) |l| l.balance() else 0;
+            const rBal = if (self.right) |r| r.balance() else 0;
+            if (bal < -1 and lBal <= -1) {
+                return try self.rotateRight();
+            } else if (bal < -1 and lBal >= 1) {
+                return try self.rotateLeftRight();
+            } else if (bal > 1 and rBal <= -1) {
+                return try self.rotateRightLeft();
+            } else if (bal > 1 and rBal >= 1) {
+                return try self.rotateLeft();
+            }
+            return self;
         }
-        self.root = self.root.?.insert(new_node);
-    }
-    pub fn delete(self: *Tree, value: i32) anyerror!void {
-        var alloc = self.allocator.allocator();
-        self.root = self.root.?.delete(&alloc, value);
-    }
+    };
+}
 
-    pub fn rebalance(self: *Tree) anyerror!void {
-        self.root = try self.root.?.rebalance();
-    }
+fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
+    return struct {
+        const Self = @This();
+        const TreeNode = Node(DataType, Cmp);
 
-    pub fn print(self: Tree, writer: anytype) anyerror!void {
-        //bfs for the win
-        var nodes = std.fifo.LinearFifo(*Node, .Dynamic).init(self.allocator.allocator());
-        defer nodes.deinit();
-        try nodes.writeItem(self.root.?);
-        while (nodes.count > 0) {
-            const curr_node = nodes.readItem().?;
-            try writer.print("[{},{}], ", .{ curr_node.data, curr_node.height });
-            if (curr_node.left) |l| {
-                try nodes.writeItem(l);
-            }
-            if (curr_node.right) |r| {
-                try nodes.writeItem(r);
-            }
+        root: ?*TreeNode,
+        allocator: *std.heap.ArenaAllocator,
+
+        fn init(allocator: *std.heap.ArenaAllocator) Self {
+            return Self{
+                .root = null,
+                .allocator = allocator,
+            };
         }
 
-        try writer.print("\n", .{});
-    }
-};
+        fn deinit(self: Self) void {
+            self.allocator.deinit();
+        }
+
+        pub fn insert(self: *Self, value: i32) anyerror!void {
+            const new_node = try self.allocator.allocator().create(TreeNode);
+            new_node.* = .{
+                .data = value,
+                .height = 1,
+                .left = null,
+                .right = null,
+            };
+            if (self.root == null) {
+                self.root = new_node;
+                return;
+            }
+            self.root = self.root.?.insert(new_node);
+        }
+        pub fn delete(self: *Self, value: i32) anyerror!void {
+            var alloc = self.allocator.allocator();
+            self.root = self.root.?.delete(&alloc, value);
+        }
+
+        pub fn rebalance(self: *Self) anyerror!void {
+            self.root = try self.root.?.rebalance();
+        }
+
+        pub fn print(self: Self, writer: anytype) anyerror!void {
+            //bfs for the win
+            var nodes = std.fifo.LinearFifo(*TreeNode, .Dynamic).init(self.allocator.allocator());
+            defer nodes.deinit();
+            try nodes.writeItem(self.root.?);
+            while (nodes.count > 0) {
+                const curr_node = nodes.readItem().?;
+                try writer.print("[{},{}], ", .{ curr_node.data, curr_node.height });
+                if (curr_node.left) |l| {
+                    try nodes.writeItem(l);
+                }
+                if (curr_node.right) |r| {
+                    try nodes.writeItem(r);
+                }
+            }
+
+            try writer.print("\n", .{});
+        }
+    };
+}
+
+fn Cmpi32(x: i32, y: i32) std.math.Order {
+    return std.math.order(x, y);
+}
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -221,7 +241,8 @@ pub fn main() !void {
     try stdout.print("Test with {} insertion and deletions\n", .{testTimes});
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var tree = Tree.init(&arena);
+    const i32Tree = Tree(i32, Cmpi32);
+    var tree = i32Tree.init(&arena);
     defer tree.deinit();
 
     // init timestamps array and index
@@ -279,7 +300,8 @@ pub fn main() !void {
 
 test "simple insert rebalance" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var tree = Tree.init(&arena);
+    const i32Tree = Tree(i32, Cmpi32);
+    var tree = i32Tree.init(&arena);
     defer tree.deinit();
     try tree.insert(2);
     try tree.insert(1);
@@ -302,7 +324,8 @@ test "simple insert rebalance" {
 
 test "simple delete rebalance" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    var tree = Tree.init(&arena);
+    const i32Tree = Tree(i32, Cmpi32);
+    var tree = i32Tree.init(&arena);
     defer tree.deinit();
     try tree.insert(2);
     try tree.insert(1);
