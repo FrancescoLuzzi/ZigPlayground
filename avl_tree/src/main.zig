@@ -180,7 +180,7 @@ fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             self.allocator.deinit();
         }
 
-        pub fn insert(self: *Self, value: i32) anyerror!void {
+        pub fn insert(self: *Self, value: DataType) anyerror!void {
             const new_node = try self.allocator.allocator().create(TreeNode);
             new_node.* = .{
                 .data = value,
@@ -194,7 +194,7 @@ fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             }
             self.root = self.root.?.insert(new_node);
         }
-        pub fn delete(self: *Self, value: i32) anyerror!void {
+        pub fn delete(self: *Self, value: DataType) anyerror!void {
             var alloc = self.allocator.allocator();
             self.root = self.root.?.delete(&alloc, value);
         }
