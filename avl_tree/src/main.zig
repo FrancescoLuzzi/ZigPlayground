@@ -16,14 +16,14 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             return if (node) |n| n.height else 0;
         }
 
-        fn setNodeHeight(node: *Self) void {
-            node.height = @max(getNodeHeight(node.right), getNodeHeight(node.left)) + 1;
-        }
-
         data: DataType,
         height: i32,
         left: ?*Self,
         right: ?*Self,
+
+        fn setNodeHeight(self: *Self) void {
+            self.height = @max(getNodeHeight(self.right), getNodeHeight(self.left)) + 1;
+        }
 
         fn insert(self: *Self, new_node: *Self) *Self {
             const cmp = comparer(new_node.data, self.data);
@@ -40,7 +40,7 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                     self.left = new_node;
                 }
             }
-            setNodeHeight(self);
+            self.setNodeHeight();
             return self.rebalance() catch self;
         }
 
@@ -49,11 +49,11 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 if (l.left == null) {
                     self.left = l.right;
                     l.right = null;
-                    setNodeHeight(self);
+                    self.setNodeHeight();
                     return l;
                 } else {
                     const out = l.left.?.popMinNode();
-                    setNodeHeight(self);
+                    self.setNodeHeight();
                     return out;
                 }
             }
@@ -64,11 +64,11 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 if (r.right == null) {
                     self.right = r.left;
                     r.left = null;
-                    setNodeHeight(self);
+                    self.setNodeHeight();
                     return r;
                 } else {
                     const out = popMaxNode(r.right.?);
-                    setNodeHeight(self);
+                    self.setNodeHeight();
                     return out;
                 }
                 self.right = r.left;
@@ -84,14 +84,14 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 if (self.left != null or self.right != null) {
                     if (self.left == null) {
                         new_root = self.right;
-                        setNodeHeight(new_root.?);
+                        new_root.?.setNodeHeight();
                     } else if (self.right == null) {
                         new_root = self.left;
-                        setNodeHeight(new_root.?);
+                        new_root.?.setNodeHeight();
                     } else {
                         new_root = self.right.?.popMinNode();
                         new_root.?.left = self.left;
-                        setNodeHeight(new_root.?);
+                        new_root.?.setNodeHeight();
                         new_root = new_root.?.rebalance() catch unreachable;
                     }
                 }
@@ -108,7 +108,7 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                     self.left = l.delete(allocator, value);
                 }
             }
-            setNodeHeight(self);
+            self.setNodeHeight();
             return self.rebalance() catch unreachable;
         }
 
@@ -120,16 +120,16 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             var new_root = self.right.?;
             self.right = new_root.left;
             new_root.left = self;
-            setNodeHeight(self);
-            setNodeHeight(new_root);
+            self.setNodeHeight();
+            new_root.setNodeHeight();
             return new_root;
         }
         fn rotateRight(self: *Self) anyerror!*Self {
             var new_root = self.left.?;
             self.left = new_root.right;
             new_root.right = self;
-            setNodeHeight(self);
-            setNodeHeight(new_root);
+            self.setNodeHeight();
+            new_root.setNodeHeight();
             return new_root;
         }
         fn rotateLeftRight(self: *Self) anyerror!*Self {
