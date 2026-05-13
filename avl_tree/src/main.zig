@@ -56,23 +56,6 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             }
             return self;
         }
-        fn popMaxNode(self: *Self) *Self {
-            if (self.right) |r| {
-                if (r.right == null) {
-                    self.right = r.left;
-                    r.left = null;
-                    self.setNodeHeight();
-                    return r;
-                } else {
-                    const out = popMaxNode(r.right.?);
-                    self.setNodeHeight();
-                    return out;
-                }
-                self.right = r.left;
-                return r;
-            }
-            return self;
-        }
 
         fn delete(self: *Self, allocator: *std.mem.Allocator, value: DataType) ?*Self {
             const cmp = comparer(value, self.data);
