@@ -1,8 +1,5 @@
 const std = @import("std");
 
-const max_i32 = std.math.maxInt(i32);
-const min_i32 = std.math.minInt(i32);
-
 fn Comparer(t: type) type {
     return fn (a: t, b: t) std.math.Order;
 }
@@ -77,7 +74,7 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             return self;
         }
 
-        fn delete(self: *Self, allocator: *std.mem.Allocator, value: i32) ?*Self {
+        fn delete(self: *Self, allocator: *std.mem.Allocator, value: DataType) ?*Self {
             const cmp = comparer(value, self.data);
             if (cmp.compare(.eq)) {
                 var new_root: ?*Self = null;
@@ -224,10 +221,6 @@ fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
     };
 }
 
-fn Cmpi32(x: i32, y: i32) std.math.Order {
-    return std.math.order(x, y);
-}
-
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
     const testTimes: i64 = 1_000_000;
@@ -241,7 +234,7 @@ pub fn main() !void {
     try stdout.print("Test with {} insertion and deletions\n", .{testTimes});
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const i32Tree = Tree(i32, Cmpi32);
+    const i32Tree = Tree(i32, std.math.order);
     var tree = i32Tree.init(&arena);
     defer tree.deinit();
 
@@ -300,7 +293,7 @@ pub fn main() !void {
 
 test "simple insert rebalance" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const i32Tree = Tree(i32, Cmpi32);
+    const i32Tree = Tree(i32, std.math.order);
     var tree = i32Tree.init(&arena);
     defer tree.deinit();
     try tree.insert(2);
@@ -324,7 +317,7 @@ test "simple insert rebalance" {
 
 test "simple delete rebalance" {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const i32Tree = Tree(i32, Cmpi32);
+    const i32Tree = Tree(i32, std.math.order);
     var tree = i32Tree.init(&arena);
     defer tree.deinit();
     try tree.insert(2);
