@@ -9,17 +9,21 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
         const Self = @This();
         const comparer = Cmp;
 
-        fn getNodeHeight(node: ?*Self) i32 {
-            return if (node) |n| n.height else 0;
-        }
-
         data: DataType,
         height: i32,
         left: ?*Self,
         right: ?*Self,
 
+        fn getNodeHeight(node: ?*Self) i32 {
+            return if (node) |n| n.height else 0;
+        }
+
         fn setNodeHeight(self: *Self) void {
             self.height = @max(getNodeHeight(self.right), getNodeHeight(self.left)) + 1;
+        }
+
+        fn balanceFactor(self: *Self) i32 {
+            return getNodeHeight(self.right) - getNodeHeight(self.left);
         }
 
         fn insert(self: *Self, new_node: *Self) *Self {
@@ -92,10 +96,6 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             return self.rebalance() catch unreachable;
         }
 
-        fn balance(self: *Self) i32 {
-            return getNodeHeight(self.right) - getNodeHeight(self.left);
-        }
-
         fn rotateLeft(self: *Self) anyerror!*Self {
             var new_root = self.right.?;
             self.right = new_root.left;
@@ -104,6 +104,7 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             new_root.setNodeHeight();
             return new_root;
         }
+
         fn rotateRight(self: *Self) anyerror!*Self {
             var new_root = self.left.?;
             self.left = new_root.right;
@@ -112,29 +113,21 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             new_root.setNodeHeight();
             return new_root;
         }
-        fn rotateLeftRight(self: *Self) anyerror!*Self {
-            self.left = try self.left.?.rotateLeft();
-            return try self.rotateRight();
-        }
-        fn rotateRightLeft(self: *Self) anyerror!*Self {
-            self.right = try self.right.?.rotateRight();
-            return try self.rotateLeft();
-        }
-        fn rebalance(self: *Self) anyerror!*Self {
-            const bal = self.balance();
-            if (bal >= -1 and bal <= 1) {
-                return self;
-            }
-            const lBal = if (self.left) |l| l.balance() else 0;
-            const rBal = if (self.right) |r| r.balance() else 0;
-            if (bal < -1 and lBal <= -1) {
-                return try self.rotateRight();
-            } else if (bal < -1 and lBal >= 1) {
-                return try self.rotateLeftRight();
-            } else if (bal > 1 and rBal <= -1) {
-                return try self.rotateRightLeft();
-            } else if (bal > 1 and rBal >= 1) {
-                return try self.rotateLeft();
+
+        fn rebalance(self: *Self) *Self {
+            self.setNodeHeight();
+            const bal = self.balanceFactor();
+
+            if (bal < -1) {
+                if (self.left.?.balanceFactor() > 0) {
+                    self.left = self.left.?.rotateLeft();
+                }
+                return self.rotateRight();
+            } else if (bal > 1) {
+                if (self.right.?.balanceFactor() < 0) {
+                    self.right = self.right.?.rotateRight();
+                }
+                return self.rotateLeft();
             }
             return self;
         }
