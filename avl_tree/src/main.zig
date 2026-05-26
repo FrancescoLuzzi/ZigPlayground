@@ -1,6 +1,6 @@
 const std = @import("std");
 
-fn Comparer(t: type) type {
+fn Comparer(comptime t: type) type {
     return fn (a: t, b: t) std.math.Order;
 }
 
@@ -51,7 +51,6 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
         }
 
         fn rebalance(self: *Self) *Self {
-            self.setNodeHeight();
             const bal = self.balanceFactor();
 
             if (bal < -1) {
@@ -65,35 +64,40 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 }
                 return self.rotateLeft();
             }
+            self.setNodeHeight();
             return self;
         }
 
-        fn insert(self: *Self, new_node: *Self) *Self {
+        fn insert(self: *Self, new_node: *Self, allocator: std.mem.Allocator) *Self {
             switch (comparer(new_node.data, self.data)) {
                 .gt => if (self.right) |right| {
-                    self.right = right.insert(new_node);
+                    self.right = right.insert(new_node, allocator);
                 } else {
                     self.right = new_node;
                 },
-                else => if (self.left) |left| {
-                    self.left = left.insert(new_node);
+                .lt => if (self.left) |left| {
+                    self.left = left.insert(new_node, allocator);
                 } else {
                     self.left = new_node;
+                },
+                .eq => {
+                    allocator.destroy(new_node);
+                    return self;
                 },
             }
             return self.rebalance();
         }
 
-        fn deleteMinAndReturnRightChild(self: *Self, allocator: std.mem.Allocator, out_min_data: *DataType) ?*Self {
-            if (self.left) |left| {
-                self.left = left.deleteMinAndReturnRightChild(allocator, out_min_data);
-                return self.rebalance();
-            }
+        const ExtractResult = struct { min: *Self, root: ?*Self };
 
-            out_min_data.* = self.data;
-            const right_child = self.right;
-            allocator.destroy(self);
-            return right_child;
+        fn extractMin(self: *Self) ExtractResult {
+            if (self.left) |left| {
+                const result = left.extractMin();
+                self.left = result.root;
+                return .{ .min = result.min, .root = self.rebalance() };
+            }
+            // self IS the minimum — detach it and hand its right child up.
+            return .{ .min = self, .root = self.right };
         }
 
         fn delete(self: ?*Self, allocator: std.mem.Allocator, value: DataType) ?*Self {
@@ -103,19 +107,17 @@ fn Node(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 .lt => node.left = delete(node.left, allocator, value),
                 .gt => node.right = delete(node.right, allocator, value),
                 .eq => {
-                    // when we find the node that has a least one of it's children null (aka at the end of the tree)
-                    // we return the non null child, if present, and deallocate the current node
-                    // if the node has both the children (aka in the middle of the tree)
-                    // we take the smallest value of the right sub tree,
-                    // copy the value in the current node, this can be done because of the properties of the tree:
-                    // the smallest value of the right subtree will be smaller of the right value and bigger than the left one
-                    // then delete the smallest value in the right subtree
                     if (node.left == null or node.right == null) {
                         const temp = if (node.left) |l| l else node.right;
                         allocator.destroy(node);
                         return temp;
                     } else {
-                        node.right = node.right.?.deleteMinAndReturnRightChild(allocator, &node.data);
+                        const result = node.right.?.extractMin();
+                        const successor = result.min;
+                        successor.left = node.left;
+                        successor.right = result.root;
+                        allocator.destroy(node);
+                        return successor.rebalance();
                     }
                 },
             }
@@ -140,7 +142,6 @@ pub fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
             if (self.root) |root| {
                 root.deinit(self.allocator);
             }
-            // Set root to null to prevent double-frees or use-after-free
             self.root = null;
         }
 
@@ -152,7 +153,7 @@ pub fn Tree(comptime DataType: type, comptime Cmp: Comparer(DataType)) type {
                 .left = null,
                 .right = null,
             };
-            self.root = if (self.root) |r| r.insert(new_node) else new_node;
+            self.root = if (self.root) |r| r.insert(new_node, self.allocator) else new_node;
         }
 
         pub fn delete(self: *Self, value: DataType) void {
@@ -167,7 +168,7 @@ fn Cmpi32(x: i32, y: i32) std.math.Order {
 
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
-    const testTimes: usize = 100_000; // Lowered for standard run, 1M is fine on heap
+    const testTimes: usize = 100_000;
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -176,6 +177,7 @@ pub fn main() !void {
     const I32Tree = Tree(i32, Cmpi32);
     var tree = I32Tree.init(allocator);
     // Note: We manually delete nodes, but this cleans up the root if anything remains.
+    defer tree.deinit();
 
     // Allocate timings on the HEAP to avoid Stack Overflow
     const timings = try allocator.alloc(f64, testTimes);
@@ -183,32 +185,45 @@ pub fn main() !void {
 
     try stdout.print("Running benchmark for {} items...\n", .{testTimes});
 
-    // Insertion Benchmark
+    const asc_f64 = struct {
+        fn lessThan(_: void, a: f64, b: f64) bool {
+            return a < b;
+        }
+    }.lessThan;
+
+    // Insertion benchmark
     var i: usize = 0;
     var total_ns: f64 = 0;
     while (i < testTimes) : (i += 1) {
         const start = try std.time.Instant.now();
         try tree.insert(@intCast(i));
         const end = try std.time.Instant.now();
-
-        const duration = @as(f64, @floatFromInt(end.since(start)));
-        timings[i] = duration;
-        total_ns += duration;
+        timings[i] = @as(f64, @floatFromInt(end.since(start)));
+        total_ns += timings[i];
     }
-    try stdout.print("Mean Insertion: {d:.2}ns\n", .{total_ns / @as(f64, @floatFromInt(testTimes))});
+    std.mem.sort(f64, timings, {}, asc_f64);
+    try stdout.print("Insertion — mean: {d:.2}ns  median: {d:.2}ns  p99: {d:.2}ns\n", .{
+        total_ns / @as(f64, @floatFromInt(testTimes)),
+        timings[testTimes / 2],
+        timings[testTimes * 99 / 100],
+    });
 
-    // Deletion Benchmark
+    // Deletion benchmark
     i = 0;
     total_ns = 0;
     while (i < testTimes) : (i += 1) {
         const start = try std.time.Instant.now();
         tree.delete(@intCast(i));
         const end = try std.time.Instant.now();
-
-        const duration = @as(f64, @floatFromInt(end.since(start)));
-        total_ns += duration;
+        timings[i] = @as(f64, @floatFromInt(end.since(start)));
+        total_ns += timings[i];
     }
-    try stdout.print("Mean Deletion:  {d:.2}ns\n", .{total_ns / @as(f64, @floatFromInt(testTimes))});
+    std.mem.sort(f64, timings, {}, asc_f64);
+    try stdout.print("Deletion  — mean: {d:.2}ns  median: {d:.2}ns  p99: {d:.2}ns\n", .{
+        total_ns / @as(f64, @floatFromInt(testTimes)),
+        timings[testTimes / 2],
+        timings[testTimes * 99 / 100],
+    });
 }
 
 test "simple insert rebalance" {
@@ -262,4 +277,26 @@ test "simple delete rebalance" {
     try std.testing.expectEqual(@as(i32, 3), node.?.data);
     node = node_r.?.right;
     try std.testing.expectEqual(null, node);
+}
+
+test "duplicate insert does not grow tree" {
+    const allocator = std.testing.allocator;
+
+    const i32Tree = Tree(i32, Cmpi32);
+    var tree = i32Tree.init(allocator);
+    defer tree.deinit();
+
+    try tree.insert(1);
+    try tree.insert(2);
+    try tree.insert(2); // duplicate — should be a no-op
+    try tree.insert(3);
+
+    // Tree should look like a balanced tree of {1,2,3}, not have a duplicate 2.
+    try std.testing.expectEqual(@as(i32, 2), tree.root.?.data);
+    try std.testing.expectEqual(@as(i32, 1), tree.root.?.left.?.data);
+    try std.testing.expectEqual(@as(i32, 3), tree.root.?.right.?.data);
+    try std.testing.expectEqual(null, tree.root.?.left.?.left);
+    try std.testing.expectEqual(null, tree.root.?.left.?.right);
+    try std.testing.expectEqual(null, tree.root.?.right.?.left);
+    try std.testing.expectEqual(null, tree.root.?.right.?.right);
 }
